@@ -11,9 +11,9 @@
 
 <meta name="author" content="Ben Jacobs" />
 
-<meta name="date" content="2025-08-14" />
+<meta name="date" content="2025-11-02" />
 
-<title>APOE in Genes &amp; Health</title>
+<title>APOE</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -1479,9 +1479,9 @@ border-radius: 0px;
 
 
 
-<h1 class="title toc-ignore">APOE in Genes &amp; Health</h1>
+<h1 class="title toc-ignore">APOE</h1>
 <h4 class="author">Ben Jacobs</h4>
-<h4 class="date">2025-08-14</h4>
+<h4 class="date">2025-11-02</h4>
 
 </div>
 
@@ -1489,12 +1489,14 @@ border-radius: 0px;
 <div id="preamble" class="section level2">
 <h2>Preamble</h2>
 <p>This markdown doc contains code used to analyse the association of
-APOE alleles with dementia in Genes &amp; Health. Ben Jacobs 14-08-25 <a href="mailto:b.jacobs@qmul.ac.uk" class="email">b.jacobs@qmul.ac.uk</a></p>
+APOE alleles with dementia in Genes &amp; Health. Ben Jacobs 02-11-25 <a href="mailto:b.jacobs@qmul.ac.uk" class="email">b.jacobs@qmul.ac.uk</a></p>
+<p>Changelog 02-11-25 - Updated Topmed-r2 to Topmed-r3. - Tidied up
+figures.</p>
 </div>
 <div id="extract-haplotypes-from-imputed-genotype-data" class="section level2">
 <h2>Extract haplotypes from imputed genotype data</h2>
 <pre class="unix"><code>cd /home/ivm/apoe/scratch
-plink2 --vcf /genesandhealth/library-red/genesandhealth/GSAv3EAMD/Oct2023_51k_TOPMED-r2_Imputation_b38/unfiltered_merged_vcfs/chr19.dose.merged.vcf.gz \
+plink2 --vcf /genesandhealth/library-red/genesandhealth/GSAv3EAMD/Jan2024_51k_TOPMED-r3_Imputation_b38/chr19.dose.merged_INFO0.3_MAF0.00001_F_MISSING0.2.vcf.gz \
 --chr 19 \
 --from-bp 44908684 \
 --to-bp 44908822 \
@@ -1503,18 +1505,25 @@ plink2 --vcf /genesandhealth/library-red/genesandhealth/GSAv3EAMD/Oct2023_51k_TO
 
 cat /home/ivm/apoe/scratch/apoe_region.pvar | grep -v -E &quot;##&quot;
 
-echo &quot;chr19:44908684:T:C&quot; &gt; snps_to_keep
-echo &quot;chr19:44908822:C:T&quot; &gt;&gt; snps_to_keep
+echo &quot;rs429358&quot; &gt; snps_to_keep
+echo &quot;rs7412&quot; &gt;&gt; snps_to_keep
 
 plink2 --pfile apoe_region \
 --extract snps_to_keep \
 --export haps \
 --out apoe_haplotypes
+
+plink2 --pfile apoe_region \
+--extract snps_to_keep \
+--freq \
+--out apoe_freqs
 </code></pre>
 </div>
 <div id="clean-haplotypes" class="section level2">
 <h2>Clean haplotypes</h2>
 <pre class="r"><code>library(tidyverse)
+
+
 
 # read in haps 
 apoe_haps = read_table(&quot;/home/ivm/apoe/scratch/apoe_haplotypes.haps&quot;,col_names = F)
@@ -1529,22 +1538,21 @@ for(i in c(1:length(apoe_samples$ID_2))){
 }
 colnames(apoe_haps)[c(6:ncol(apoe_haps))] = unlist(colnames)
 
+# store variant details 
+vars = apoe_haps %&gt;% dplyr::select(1:5)
+
 # spread long
 apoe_haps = apoe_haps %&gt;% 
   pivot_longer(cols = c(6:ncol(apoe_haps))) %&gt;%
   pivot_wider(id_cols = name, values_from = value, names_from = SNP) 
 
-apoe_haps %&gt;%
-  dplyr::count(`chr19:44908684:T:C`) %&gt;%
-  mutate(prop = n/sum(n))
-
-# define haplotypes
+# define haplotypes 
 apoe_haps = apoe_haps %&gt;%
   mutate(apoe_status = case_when(
-    `chr19:44908684:T:C` == 0 &amp; `chr19:44908822:C:T` == 1 ~ &quot;APOE4&quot;,
-    `chr19:44908684:T:C` == 1 &amp; `chr19:44908822:C:T` == 1 ~ &quot;APOE3&quot;,
-    `chr19:44908684:T:C` == 1 &amp; `chr19:44908822:C:T` == 0 ~ &quot;APOE2&quot;,
-    `chr19:44908684:T:C` == 0 &amp; `chr19:44908822:C:T` == 0 ~ &quot;APOE1&quot;
+    rs429358 == 0 &amp; rs7412 == 1 ~ &quot;APOE4&quot;,
+    rs429358 == 1 &amp; rs7412 == 1 ~ &quot;APOE3&quot;,
+    rs429358 == 1 &amp; rs7412 == 0 ~ &quot;APOE2&quot;,
+    rs429358 == 0 &amp; rs7412 == 0 ~ &quot;APOE1&quot;
   )) %&gt;%
   separate(name,sep = &quot;_&quot;, into = c(&quot;IID&quot;,&quot;FID&quot;,&quot;other&quot;,&quot;chrom&quot;)) %&gt;%
   dplyr::select(-FID,-other) %&gt;%
@@ -1596,12 +1604,13 @@ apoe_haps = apoe_haps %&gt;%
 </div>
 <div id="allele-frequency" class="section level2">
 <h2>Allele frequency</h2>
-<pre class="r"><code># binomial tests 
-binom.test(x = 10016,n = (50490+614),p = 0.288,alternative = &quot;less&quot;)
-binom.test(x = 49280,n = 50490,p = 0.944)
+<pre class="r"><code># variant freqs
+apoe_haps %&gt;% summarise(n_alleles = sum(apoe4_alleles), n_chroms = 2*n()) %&gt;% mutate(af = n_alleles/n_chroms)
+apoe_haps %&gt;% summarise(n_alleles = sum(apoe3_alleles), n_chroms = 2*n()) %&gt;% mutate(af = n_alleles/n_chroms)
+apoe_haps %&gt;% summarise(n_alleles = sum(apoe2_alleles), n_chroms = 2*n()) %&gt;% mutate(af = n_alleles/n_chroms)
+
 
 # AF heatmap 
-
 props = apoe_haps %&gt;% 
   dplyr::count(apoe4_doses) %&gt;% 
   mutate(pct_gh = 100*n/sum(n)) %&gt;% 
@@ -1625,15 +1634,20 @@ props$pos2 = c(100,100,props$pos[-c(11,12)])
 props = props %&gt;% 
   ungroup %&gt;% 
   mutate(midpoint = (pos + pos2 ) / 2)
-png(&quot;/home/ivm/apoe/export/afs.png&quot;,res=900,units=&quot;in&quot;,width=6,height=6)
+props$genotype = str_replace_all(props$genotype,&quot;E&quot;,&quot;\u03B5&quot;)
+tiff(&quot;/home/ivm/apoe/export/figure_1.tiff&quot;,res=900,units=&quot;in&quot;,width=5,height=4)
 ggplot(props,aes(name,value,fill=genotype))+
   geom_col(color=&quot;black&quot;)+
   scale_fill_brewer(palette=&quot;Set1&quot;)+
   theme_bw()+
-  labs(fill=&quot;APOE allele&quot;,x=&quot;Cohort&quot;,y=&quot;Percentage of cohort (%)&quot;)+
+  labs(fill=&quot;APOE genotype&quot;,x=&quot;Cohort&quot;,y=&quot;Percentage of cohort (%)&quot;)+
   geom_text(data = props %&gt;% mutate(label = ifelse(value &lt; 5,&quot; &quot;,paste0(round(value,1),&quot;%&quot;))),
             mapping = aes(label = label,y=midpoint))
-dev.off()</code></pre>
+dev.off()
+
+# binomial tests 
+binom.test(x = 10062,n = (50490+614),p = 0.288,alternative = &quot;less&quot;)
+binom.test(x = 49280,n = 50490,p = 0.944)</code></pre>
 </div>
 <div id="add-additional-phenotypes-covariates" class="section level2">
 <h2>Add additional phenotypes &amp; covariates</h2>
@@ -1731,11 +1745,29 @@ apoe_haps %&gt;% dplyr::count(dementia_status)
 apoe_haps %&gt;% dplyr::count(apoe4_alleles) %&gt;% mutate(prop = n/sum(n))
 apoe_haps %&gt;% dplyr::count(apoe3_alleles) %&gt;% mutate(prop = n/sum(n))
 
+# assess types of dementia
+apoe_haps %&gt;%
+    dplyr::select(contains(&quot;status&quot;)) %&gt;%
+    glimpse()
+
+apoe_haps %&gt;% filter(dementia_status == &quot;Case&quot;) %&gt;% dplyr::count(ad_status) %&gt;% mutate(prop = n/sum(n))
+apoe_haps %&gt;% filter(dementia_status == &quot;Case&quot;) %&gt;% dplyr::count(vad_status) %&gt;% mutate(prop = n/sum(n))
+apoe_haps %&gt;% filter(dementia_status == &quot;Case&quot;) %&gt;% dplyr::count(dementia_nos__status) %&gt;% mutate(prop = n/sum(n))
+
+apoe_haps %&gt;% filter(dementia_status == &quot;Control&quot;) %&gt;% dplyr::count(ad_status) %&gt;% mutate(prop = n/sum(n))
+apoe_haps %&gt;% filter(dementia_status == &quot;Control&quot;) %&gt;% dplyr::count(vad_status) %&gt;% mutate(prop = n/sum(n))
+apoe_haps %&gt;% filter(dementia_status == &quot;Control&quot;) %&gt;% dplyr::count(dementia_nos__status) %&gt;% mutate(prop = n/sum(n))
+
+
 # get AFs
 nchroms = nrow(apoe_haps)*2
 apoe_haps %&gt;% dplyr::count(apoe2_alleles) %&gt;% mutate(n_dose = n*apoe2_alleles) %&gt;% mutate(af = sum(n_dose)/ nchroms) 
 apoe_haps %&gt;% dplyr::count(apoe3_alleles) %&gt;% mutate(n_dose = n*apoe3_alleles) %&gt;% mutate(af = sum(n_dose)/ nchroms) 
 apoe_haps %&gt;% dplyr::count(apoe4_alleles) %&gt;% mutate(n_dose = n*apoe4_alleles) %&gt;% mutate(af = sum(n_dose)/nchroms) 
+apoe_haps %&gt;% 
+  group_by(pop.GSA.51k) %&gt;%
+  dplyr::count(apoe4_alleles) %&gt;%
+  mutate(n_dose = n*apoe4_alleles) %&gt;% mutate(af = sum(n_dose)/(2*sum(n))) 
 
 # stratified 
 apoe_haps %&gt;% group_by(dementia_status) %&gt;% dplyr::count(apoe2_alleles) %&gt;% mutate(n_dose = n*apoe2_alleles) %&gt;% mutate(af = sum(n_dose)/ (2*sum(n))) 
@@ -1747,6 +1779,10 @@ apoe_haps %&gt;% summarise_at(vars(AgeAtRecruitment),.funs = c(&quot;median&quot
 
 apoe_haps %&gt;% group_by(dementia_status) %&gt;% summarise_at(vars(AgeAtRecruitment),.funs = c(&quot;median&quot;,&quot;IQR&quot;))
 apoe_haps %&gt;%  group_by(dementia_status) %&gt;% dplyr::count(S1QST_Gender) %&gt;% mutate(pct = n/sum(n)*100)
+
+apoe_haps %&gt;%  group_by(ad_status) %&gt;% dplyr::count(S1QST_Gender) %&gt;% mutate(pct = n/sum(n)*100)
+apoe_haps %&gt;%  group_by(vad_status) %&gt;% dplyr::count(S1QST_Gender) %&gt;% mutate(pct = n/sum(n)*100)
+
 apoe_haps  %&gt;% dplyr::count(S1QST_Gender) %&gt;% mutate(pct = n/sum(n)*100)
 
 apoe_haps %&gt;% dplyr::count(apoe4_doses) %&gt;% mutate(pct = n/sum(n)*100) %&gt;% 
@@ -1772,7 +1808,22 @@ apoe_haps %&gt;% group_by(pop.GSA.51k) %&gt;%
 cases = apoe_haps %&gt;% filter(dementia_status==&quot;Case&quot;) %&gt;% mutate(case_type = ifelse(age_at_event &gt; AgeAtRecruitment,&quot;Incident&quot;,&quot;Prevalent&quot;))
 cases %&gt;% 
   dplyr::count(case_type) %&gt;%
-  mutate(total = sum(n),prop = n/total)</code></pre>
+  mutate(total = sum(n),prop = n/total)
+
+
+apoe_haps %&gt;% group_by(dementia_status) %&gt;% dplyr::count(e4_carrier = apoe4_alleles&gt;=1) %&gt;% mutate(pct = n/sum(n)*100) %&gt;% 
+  mutate(lab = paste0(n,&quot; &quot;,round(pct,1),&quot;%&quot;)) %&gt;%
+  pivot_wider(id_cols = e4_carrier,values_from = lab,names_from = dementia_status)
+
+apoe_haps  %&gt;% dplyr::count(e4_carrier = apoe4_alleles&gt;=1) %&gt;% mutate(pct = n/sum(n)*100) %&gt;% 
+  mutate(lab = paste0(n,&quot; &quot;,round(pct,1),&quot;%&quot;)) 
+apoe_haps  %&gt;% dplyr::count(apoe4_alleles) %&gt;% mutate(pct = n/sum(n)*100) %&gt;% 
+  mutate(lab = paste0(n,&quot; &quot;,round(pct,1),&quot;%&quot;)) 
+
+apoe_haps  %&gt;% dplyr::count(e3_carrier = apoe3_alleles&gt;=1) %&gt;% mutate(pct = n/sum(n)*100) %&gt;% 
+  mutate(lab = paste0(n,&quot; &quot;,round(pct,1),&quot;%&quot;)) 
+apoe_haps  %&gt;% dplyr::count(apoe3_alleles) %&gt;% mutate(pct = n/sum(n)*100) %&gt;% 
+  mutate(lab = paste0(n,&quot; &quot;,round(pct,1),&quot;%&quot;)) </code></pre>
 </div>
 <div id="models-survival-paf" class="section level2">
 <h2>Models, survival, PAF</h2>
@@ -2069,18 +2120,28 @@ pafs = pafs %&gt;% dplyr::select(-1) %&gt;% colSums() %&gt;%
   data.frame() %&gt;%
   mutate(apoe4_doses = &quot;Combined E3 &amp; E4&quot;) %&gt;%
   bind_rows(pafs,e3,e4) 
-pafs$apoe4_doses = factor(pafs$apoe4_doses,
-                          levels = c(&quot;Combined E3 &amp; E4&quot;,&quot;Combined E3&quot;,&quot;Combined E4&quot;,&quot;E3/E2&quot;,&quot;E3/E3&quot;,&quot;E4/E2&quot;,&quot;E4/E3&quot;,&quot;E4/E4&quot;
-                                     ))
 pafs = pafs %&gt;% mutate(col = ifelse(grepl(&quot;Combined&quot;,apoe4_doses),&quot;Combined&quot;,&quot;Other&quot;))
-ggplot(pafs,aes(apoe4_doses,100*paf_est,col=col,label=paste0(round(100*paf_est,1),&quot;%&quot;)))+
+pafs$apoe4_doses = str_replace_all(pafs$apoe4_doses,&quot;Combined&quot;,&quot;All&quot;)
+pafs$apoe4_doses = str_replace_all(pafs$apoe4_doses,&quot;E&quot;,&quot;\u03B5&quot;)
+pafs$apoe4_doses = factor(pafs$apoe4_doses,
+                          levels = c(&quot;All \u03B53 &amp; \u03B54&quot;,&quot;All \u03B53&quot;,&quot;All \u03B54&quot;,&quot;\u03B53/\u03B52&quot;,&quot;\u03B53/\u03B53&quot;,&quot;\u03B54/\u03B52&quot;,&quot;\u03B54/\u03B53&quot;,&quot;\u03B54/\u03B54&quot;
+                                     ))
+
+p = ggplot(pafs,aes(apoe4_doses,100*paf_est,col=col,label=paste0(round(100*paf_est,1),&quot;%&quot;)))+
   geom_point(size=3)+
   scale_color_brewer(palette=&quot;Dark2&quot;)+
   geom_errorbar(mapping = aes(x = apoe4_doses,ymin=100*paf_est,ymax=100*paf_est_upper),width=0.01)+
-  theme_bw()+
-  theme(legend.position = &quot;none&quot;)+
   labs(y=&quot;PAF (%)&quot;,x=&quot;APOE genotype&quot;)+
-  ggrepel::geom_text_repel(nudge_x = 0.1)
+  ggrepel::geom_text_repel(nudge_x = 0.1)+
+  theme(panel.grid = element_blank())+
+    theme_minimal()+
+  theme(axis.line = element_line(linewidth = 0.5),panel.grid = element_blank(),text = element_text(size=14,color=&quot;black&quot;),
+        legend.position = &quot;none&quot;)
+  
+tiff(&quot;/home/ivm/apoe/export/figure_3.tiff&quot;,res=900,units=&quot;in&quot;,width=8,height=4)
+p
+dev.off()
+
 
 # repeat with E2/E2 and E2/E3 combined reference
 apoe_haps = apoe_haps %&gt;% mutate(apoe_allele_for_paf = ifelse(
@@ -2122,7 +2183,8 @@ pafs$apoe_allele_for_paf[5]=&quot;Combined&quot;
 
 
 
-ggplot(pafs,aes(apoe_allele_for_paf,
+  
+p =ggplot(pafs,aes(apoe_allele_for_paf,
                 100*paf_est,
                 col=apoe_allele_for_paf!=&quot;Combined&quot;,
        label = paste0(round(paf_est,3)*100,&quot;%&quot;)))+
@@ -2130,9 +2192,8 @@ ggplot(pafs,aes(apoe_allele_for_paf,
   geom_errorbar(mapping = aes(x = apoe_allele_for_paf,ymin=100*paf_est_lower,ymax=100*paf_est_upper),width=0.01,show.legend = F)+
   theme_bw()+
   labs(y=&quot;PAF (%)&quot;,x=&quot;APOE genotype&quot;)+
-  scale_color_brewer(palette=&quot;Set1&quot;)+
-  theme(panel.grid = element_blank())+
-  ggrepel::geom_text_repel(show.legend = F)
+  scale_color_brewer(palette=&quot;Set1&quot;)
+
 pafs
 
 
@@ -2145,16 +2206,20 @@ km_fit = survfit(
 )
 p0 = ggsurvplot(km_fit,
            fun = &quot;pct&quot;,
-           palette = &quot;Set1&quot;,conf.int = F,pval = T,
+           palette = &quot;Accent&quot;,conf.int = F,pval = F,
            ylab = &quot;Probability of dementia-free survival&quot;,
            xlab=&quot;Age (years)&quot;,
-           legend.labs = c(&quot;APOE E4 -/-&quot;,&quot;APOE E4 +/-&quot;,&quot;APOE E4 +/+&quot;),
+           legend.labs = c(&quot;APOE \u03B54 -/-&quot;,&quot;APOE \u03B54 +/-&quot;,&quot;APOE \u03B54 +/+&quot;),
            legend=c(0.3,0.7)
            )
 
 p0 = p0$plot+
-  scale_x_continuous(labels = function(x) x + 16,breaks = c(12,22,32,42,52,62,72))+
-  geom_hline(yintercept=50,linetype=&quot;dashed&quot;,alpha=0.3)
+  scale_x_continuous(labels = function(x) x + 16,breaks = c(14,34,54,74))+
+  geom_hline(yintercept=50,linetype=&quot;dashed&quot;,alpha=0.3)+
+  labs(color=&quot;Genotype&quot;)+
+  theme(axis.line = element_line(linewidth = 0.5),panel.grid = element_blank(),text = element_text(size=14))+
+  ggtitle(&quot;A&quot;)
+
 p0
 
 
@@ -2214,6 +2279,8 @@ plot_dat$label = paste0(&quot;HR = &quot;,
 plot_dat$lower = exp(plot_dat$estimate-1.96*plot_dat$std.error)
 plot_dat$upper = exp(plot_dat$estimate+1.96*plot_dat$std.error)
 plot_dat
+plot_dat$term = str_replace_all(plot_dat$term,&quot;E&quot;,&quot;\u03B5&quot;)
+
 p1 = ggplot(plot_dat,
        aes(exp(estimate),term,label=label))+
   geom_point()+
@@ -2222,15 +2289,17 @@ p1 = ggplot(plot_dat,
                    xmax = exp(estimate + 1.96*std.error)),
                  height=0.01,alpha=0.4
                  )+
-  theme_bw()+
-  labs(x=&quot;Hazard Ratio for dementia\nrelative to APOE 3/3 genotype&quot;,y=&quot;APOE genotype&quot;)+
-  geom_vline(xintercept=1,linetype=&quot;dashed&quot;,alpha=0.3)+
+  theme_minimal()+
+  labs(x=&quot;Hazard Ratio for dementia\nrelative to APOE \u03B53/\u03B53 genotype&quot;,y=&quot;APOE genotype&quot;)+
+  geom_vline(xintercept=1,linetype=&quot;dashed&quot;,alpha=0.1)+
   ggrepel::geom_text_repel(nudge_y=0.1)+
-  scale_x_log10()
+  scale_x_log10(breaks = c(0.25,0.5,1,2,4,8))+
+  theme(axis.line = element_line(linewidth = 0.5),panel.grid = element_blank(),text = element_text(size=14,color=&quot;black&quot;),axis.title.y = element_text(margin = margin(r=20)))+
+  ggtitle(&quot;B&quot;)
   
 
-png(&quot;/home/ivm/apoe/export/survival_plots.png&quot;,res=900,units=&quot;in&quot;,width=8,height=5)
-cowplot::plot_grid(p0,p1)
+tiff(&quot;/home/ivm/apoe/export/figure_2.tiff&quot;,res=900,units=&quot;in&quot;,width=6,height=8)
+cowplot::plot_grid(p0,p1,nrow=2,align = &quot;v&quot;)
 dev.off()</code></pre>
 </div>
 <div id="sensitivity-analysis" class="section level2">
@@ -2288,7 +2357,7 @@ plot_dat %&gt;% dplyr::select(-2,-3,-4)
 
 
 
-# just e4
+# just e4 - additive
 coxph(
   Surv(survtime,status) ~  S1QST_Gender+AgeAtRecruitment + pop.GSA.51k + 
     PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + PC10 + 
@@ -2300,7 +2369,7 @@ coxph(
   mutate(lowerci = exp(estimate - 1.96* std.error)) %&gt;%
   mutate(upperci = exp(estimate + 1.96* std.error))
   
-# just e4
+# just e4 - dominant
 coxph(
   Surv(survtime,status) ~  S1QST_Gender+AgeAtRecruitment + pop.GSA.51k + 
     PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + PC10 + 
@@ -2346,8 +2415,6 @@ coxph(
   mutate(lowerci = exp(estimate - 1.96* std.error)) %&gt;%
   mutate(upperci = exp(estimate + 1.96* std.error))
 
-# repeat with AD dementia
-
 apoe_haps$apoe4_doses = relevel(factor(apoe_haps$apoe4_doses),ref=&quot;E3/E3&quot;)
 
 coxph(
@@ -2366,6 +2433,15 @@ coxph(
     PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + PC10 + 
     apoe4_doses,
   data = apoe_haps %&gt;% filter(pop.GSA.51k != &quot;Ambiguous&quot; &amp; S1QST_Gender == &quot;2&quot;)
+) %&gt;% broom::tidy() %&gt;% 
+  filter(grepl(&quot;apoe4_doses&quot;,term)) %&gt;% 
+  mutate(HR = exp(estimate)) %&gt;% mutate(lowerci = exp(estimate - 1.96* std.error)) %&gt;%
+  mutate(upperci = exp(estimate + 1.96* std.error))
+coxph(
+  Surv(survtime,status) ~  +AgeAtRecruitment + pop.GSA.51k + 
+    PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + PC10 + 
+    apoe4_doses,
+  data = apoe_haps %&gt;% filter(pop.GSA.51k != &quot;Ambiguous&quot; &amp; S1QST_Gender == &quot;1&quot;)
 ) %&gt;% broom::tidy() %&gt;% 
   filter(grepl(&quot;apoe4_doses&quot;,term)) %&gt;% 
   mutate(HR = exp(estimate)) %&gt;% mutate(lowerci = exp(estimate - 1.96* std.error)) %&gt;%
@@ -2400,6 +2476,23 @@ model_ad = coxph(
     apoe4_doses,
   data = apoe_haps %&gt;% filter(pop.GSA.51k != &quot;Ambiguous&quot;)
 ) %&gt;% broom::tidy() %&gt;% 
+  filter(grepl(&quot;apoe4&quot;,term)) %&gt;%
+  mutate(outcome = &quot;AD&quot;)
+model_ad %&gt;%  mutate(HR = exp(estimate)) %&gt;% 
+  mutate(lowerci = exp(estimate - 1.96* std.error)) %&gt;%
+  mutate(upperci = exp(estimate + 1.96* std.error)) 
+apoe_haps$ad_status %&gt;% table 
+
+# repeat without other dementia
+model_ad = coxph(
+  Surv(survtime,status) ~ S1QST_Gender + AgeAtRecruitment + pop.GSA.51k + 
+    PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + PC10 + 
+    apoe4_doses,
+  data = apoe_haps %&gt;% 
+    filter(
+      !(dementia_status==&quot;Case&quot; &amp; ad_status==&quot;Control&quot;) &amp; 
+        pop.GSA.51k != &quot;Ambiguous&quot;)) %&gt;% 
+    broom::tidy() %&gt;% 
   filter(grepl(&quot;apoe4&quot;,term)) %&gt;%
   mutate(outcome = &quot;AD&quot;)
 model_ad %&gt;%  mutate(HR = exp(estimate)) %&gt;% 
@@ -2562,15 +2655,18 @@ res$direction = ifelse(res$estimate&lt;0,&quot;decreases&quot;,&quot;increases&q
 # plot 
 res$phenotype = str_replace_all(res$phenotype,&quot;_&quot;,&quot; &quot;)
 res$phenotype = factor(res$phenotype,ordered=T,levels = unique(res$phenotype))
+res$term = str_replace_all(res$term,&quot;E&quot;,&quot;\u03B5&quot;)
 
-png(&quot;/home/ivm/apoe/export/phewas.png&quot;,res=900,units=&quot;in&quot;,width=8,height=5)
+tiff(&quot;/home/ivm/apoe/export/figure_4.tiff&quot;,res=900,units=&quot;in&quot;,width=8,height=5)
 ggplot(res %&gt;% filter(fdr&lt;0.05),aes(phenotype,-log10(p.value),col=term,label=phenotype,shape = direction))+
   geom_point(size=3)+
   theme_bw()+
   scale_color_brewer(palette=&quot;Set1&quot;)+
   labs(x=&quot;Phenotype&quot;,y=bquote(-log[10]~P),shape=&quot;Effect direction&quot;,color=&quot;Genotype&quot;)+
   coord_flip()+
-  geom_hline(yintercept=-log10(0.05/236),alpha=0.1,linetype=&quot;dashed&quot;)
+  geom_hline(yintercept=-log10(0.05/236),alpha=0.1,linetype=&quot;dashed&quot;)+
+  theme(axis.line = element_line(linewidth = 0.5),panel.grid = element_blank(),text = element_text(size=14,color=&quot;black&quot;))
+
 dev.off()
 res$phenotype %&gt;% unique()
 
@@ -2583,8 +2679,7 @@ ggplot(plot_dat,
   geom_text(alpha=1,size=5)+
   guides(alpha=&quot;none&quot;)+
   labs(fill=&quot;Direction of effect\n(relative to E3/E3)&quot;,x=&quot;APOE genotype&quot;,y=&quot;Phenotype&quot;)+
-  theme(panel.grid = element_blank())
-  
+    theme(axis.line = element_line(linewidth = 0.5),panel.grid = element_blank(),text = element_text(size=14,color=&quot;black&quot;))
 res %&gt;% filter(fdr&lt;0.05)
 ggplot(res,aes(phenotype,-log10(p.value),fill=term,label = paste0(term,&quot; &quot;,direction,&quot; &quot;,phenotype)))+
   geom_point(data=  res %&gt;% filter(fdr &lt; 0.05),shape=21)+
